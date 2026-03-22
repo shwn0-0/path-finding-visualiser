@@ -1,7 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Square, { Node, NodeType } from './Square';
+import React, { useState, useCallback, useEffect } from 'react';
+import Square from './Square';
 import './App.css';
-import Heap from 'heap-js';
+import useAStar from './useAStar';
+import { Node, NodeType } from './node';
+
+export interface State {
+  operation: number;
+  diagonals: boolean;
+  debug: boolean;
+}
 
 enum Operation {
   SelectStart,
@@ -12,306 +19,145 @@ enum Operation {
   PathNotFound,
 }
 
-interface State {
-  operation: number;
-  start?: string;
-  end?: string;
-  diagonals: boolean;
-  debug: boolean;
-}
+const Headers = new Map([
+  [Operation.SelectStart, 'Select start position'],
+  [Operation.SelectEnd, 'Select end position'],
+  [Operation.SelectWalls, 'Draw walls'],
+  [Operation.FindPath, 'Calculating Path'],
+  [Operation.PathFound, 'Path Found'],
+  [Operation.PathNotFound, 'No Possible Path'],
+])
 
 function App() {
   const [gridSize, setGridSize] = useState<number>(10);
   const [speed, setSpeed] = useState<number>(1);
-  const [squares, setSquares] = useState<Map<string, Node>>(new Map());
   const [state, setState] = useState<State>({
     operation: Operation.SelectStart,
     diagonals: false,
     debug: false,
   });
-  const [openList, setOpenList] = useState<Heap<Node>>(
-    new Heap((a, b) => {
-      let fDiff = a.fCost - b.fCost;
+  const [wallCount, setWallCount] = useState<number>(0);
 
-      if (fDiff !== 0) {
-        return fDiff;
+  const onFinishSearching = useCallback((pathFound: boolean) => {
+    setState((prev) => ({ ...prev, operation: pathFound ? Operation.PathFound : Operation.PathNotFound }));
+  }, [setState]);
+
+  const {
+    currentNode,
+    nodes,
+    selectStart,
+    selectEnd,
+    selectWall,
+    unselectWall,
+    resetNodes,
+    handleNextStep,
+    handleSkipSteps
+  } = useAStar({ state, gridSize, speed, onFinishSearching });
+
+  const handleNext = useCallback(() => {
+    setState((prev) => ({ ...prev, operation: Operation.FindPath }));
+    handleNextStep();
+  }, [setState, handleNextStep])
+
+  const handleSkip = useCallback(() => {
+    setState((prev) => ({ ...prev, operation: Operation.FindPath }));
+    handleSkipSteps();
+  }, [setState, handleSkipSteps]);
+
+  const handleReset = useCallback(() => {
+    setWallCount(0);
+    resetNodes();
+    setState((prev) => ({ ...prev, operation: Operation.SelectStart }));
+  }, [resetNodes, setState, setWallCount]);
+
+  const handleSelectStart = useCallback((node: Node, isLeftClick) => {
+    if (isLeftClick) {
+      selectStart(node);
+      setState((prev) => ({ ...prev, operation: Operation.SelectEnd }));
+    }
+  }, [selectStart, setState]);
+
+  const handleSelectEnd = useCallback((node: Node, isLeftClick) => {
+    if (isLeftClick) {
+      if (node.type === NodeType.Empty) {
+        selectEnd(node);
+        setState((prev) => ({ ...prev, operation: Operation.SelectWalls }));
       }
+    } else if (node.type === NodeType.Start) {
+      selectStart(null);
+      setState((prev) => ({ ...prev, operation: Operation.SelectStart }));
+    }
+  }, [selectStart, selectEnd, setState]);
 
-      let hDiff = a.hCost - b.hCost;
-
-      if (hDiff !== 0) {
-        return hDiff;
+  const handleSelectWall = useCallback((node: Node, isLeftClick: boolean) => {
+    if (isLeftClick) {
+      if (node.type === NodeType.Empty) {
+        selectWall(node);
+        setWallCount((prev) => prev + 1); // trick react into rerendering by updating state
       }
+    } else if (node.type === NodeType.End) {
+      selectEnd(null);
+      setState((prev) => ({ ...prev, operation: Operation.SelectEnd }));
+    } else if (node.type === NodeType.Wall) {
+      unselectWall(node);
+      setWallCount((prev) => prev - 1);
+    }
+  }, [selectWall, unselectWall, selectEnd, setState, setWallCount]);
 
-      return a.gCost - b.gCost;
-    })
-  );
-  const [closedList, setClosedList] = useState<Set<string>>(new Set<string>());
-  const [visited, setVisited] = useState<Set<string>>(new Set<string>());
-  const [currentNode, setCurrentNode] = useState<Node>();
-
-  const reset = useCallback(() => {
-    setSquares(
-      new Map(
-        [...new Array(gridSize ** 2)].map((_, idx) => {
-          const x = idx % gridSize;
-          const y = Math.floor(idx / gridSize);
-
-          return [`${x},${y}`, new Node(x, y, gridSize)];
-        })
-      )
-    );
-
-    setState((prev) => ({
-      ...prev,
-      operation: Operation.SelectStart,
-    }));
-
-    setClosedList(new Set<string>());
-    setVisited(new Set<string>());
-    setCurrentNode(undefined);
-  }, [gridSize]);
-
-  const getHeader = useCallback(() => {
+  const handleClickSquare = useCallback((node: Node, isLeftClick: boolean) => {
     switch (state.operation) {
       case Operation.SelectStart:
-        return 'Select start position';
+        handleSelectStart(node, isLeftClick);
+        break;
 
       case Operation.SelectEnd:
-        return 'Select end position';
+        handleSelectEnd(node, isLeftClick);
+        break;
 
       case Operation.SelectWalls:
-        return 'Draw walls';
-
-      case Operation.FindPath:
-        return 'Calculating Path';
-
-      case Operation.PathFound:
-        return 'Path Found';
-
-      case Operation.PathNotFound:
-        return 'No Possible Path';
+        handleSelectWall(node, isLeftClick);
+        break;
     }
-  }, [state]);
+  }, [state, handleSelectStart, handleSelectEnd, handleSelectWall]);
 
-  const handleUpdateSquare = useCallback(
-    (node: Node, node_type?: NodeType) => {
-      setSquares((_prev) => {
-        const prev = new Map(_prev);
-
-        switch (state.operation) {
-          case Operation.SelectStart:
-            if (!node) {
-              alert('Error selecting start node');
-              break;
-            }
-
-            node.setType(NodeType.Start);
-            setCurrentNode(node);
-            node.gCost = 0;
-            node.calculateFCost();
-
-            setState((prev) => ({
-              ...prev,
-              start: node?.coord,
-              operation: Operation.SelectEnd,
-            }));
-
-            setOpenList((prev) => {
-              prev.clear();
-              prev.add(node);
-              return prev;
-            });
-
-            setVisited((prev) => {
-              prev.add(node.coord);
-              return prev;
-            });
-
-            break;
-
-          case Operation.SelectEnd:
-            if (!node) {
-              alert('error selecting end node');
-              break;
-            }
-            if (node?.coord === state.start) break;
-
-            node.setType(NodeType.End);
-
-            setState((prev) => ({
-              ...prev,
-              operation: Operation.SelectWalls,
-              end: node?.coord,
-            }));
-
-            for (let square of squares.values()) {
-              square.calculateHCost(node.x, node.y);
-            }
-            break;
-
-          case Operation.SelectWalls:
-            if (!node) {
-              alert('error selecting wall');
-              break;
-            }
-
-            if (node.type === NodeType.Start || node.type === NodeType.End) break;
-            
-            node.setType(node_type ?? NodeType.Wall);
-            break;
-
-          default:
-            console.log(node?.coord);
-        }
-
-        return prev;
-      });
-    },
-    [state, squares]
-  );
-
-  const drawPath = useCallback(async (node: Node) => {
-    while(node.prevNode) {
-      node.setType(NodeType.Path);
-      setCurrentNode(node.prevNode);
-      node = node.prevNode;
-      await new Promise((resolve) => setTimeout(resolve, 50 / speed));
-    }
-  }, [speed]);
-
-  const handleStart = useCallback(async () => {
-    if (openList.isEmpty()) {
-      setState((prev) => ({ ...prev, operation: Operation.PathNotFound }));
-      setSquares((prev) => {
-        prev.get(state.start!)!.type = NodeType.Start;
-        return new Map(prev);
-      });
-
-      return false;
-    }
-
-    let node = openList.pop();
-
-    if (!node) {
-      alert('ERROR');
-      reset();
-      return false;
-    }
-
-    node?.setType(NodeType.Visited);
-    closedList.add(node.coord);
-
-    setOpenList(openList);
-    setClosedList(closedList);
-
-    //TODO: Fix error where nodes already in the closed list are read to the open list
-
-    let ret = true;
-
-    await new Promise((resolve) => setTimeout(resolve, 100 / speed));
-    setSquares((prev) => {
-      for (let [coord, cost] of node!.neighbours) {
-        const neighbour = prev.get(coord)!;
-
-        if (
-          (!state.diagonals && cost === 1.4) ||
-          closedList.has(neighbour.coord) ||
-          neighbour.type === NodeType.Wall
-        )
-          continue;
-        if (neighbour.coord === state.end) {
-          neighbour.gCost = node!.gCost + cost;
-          neighbour.calculateFCost();
-
-
-          drawPath(node!);
-
-          prev.get(state.start!)!.type = NodeType.Start;
-          setState((prev) => ({ ...prev, operation: Operation.PathFound }));
-          ret = false;
-          return new Map(prev);
-        }
-
-        let newCost = node!.gCost + cost;
-
-        if (newCost < neighbour.gCost) {
-          neighbour.gCost = newCost;
-          neighbour.calculateFCost();
-          neighbour.prevNode = node;
-
-          if (!visited.has(coord)) {
-            neighbour.setType(NodeType.Searching);
-            visited.add(coord);
-            setVisited(visited);
-            setOpenList((prev) => {
-              prev.add(neighbour);
-              return prev;
-            });
-          }
-        }
-      }
-      return new Map(prev);
-    });
-
-    if (ret) {
-      let nextNode = openList.peek();
-      nextNode?.setType(NodeType.Start);
-      setCurrentNode(nextNode);
-    }
-
-    return ret;
-  }, [state, closedList, openList, visited, speed, reset, drawPath]);
-
-  const handleSkip = useCallback(async () => {
-    while (await handleStart());
-  }, [handleStart]);
-
-
-  useEffect(reset, [gridSize, reset]);
+  useEffect(handleReset, [gridSize, handleReset]);
 
   return (
     <div className="app">
-      <h2 className='header'>{getHeader()}</h2>
+      <h2 className='header'>{Headers.get(state.operation)}</h2>
       <p
         style={{
           display: state.debug ? 'block' : 'none',
-          textAlign:"center",
+          textAlign: "center",
           gridColumn: 1,
           gridRow: 1
         }}
-      >{`Position: ${currentNode?.coord} FCost: ${currentNode?.fCost.toFixed(
+      >{`Position: ${currentNode?.x},${currentNode?.y} FCost: ${currentNode?.fCost.toFixed(
         2
-      )}`}
+      )} Walls: ${wallCount}`}
       </p>
       <div
         className="menu-bar"
       >
         <div className='menu-bar-buttons'>
-          <button className="menu-bar-button" onClick={() => reset()}>Reset</button>
+          <button className="menu-bar-button" onClick={() => handleReset()}>Reset</button>
           <button
             className="menu-bar-button"
             disabled={
-              state.operation < Operation.SelectWalls ||
-              state.operation >= Operation.PathFound
+              state.operation !== Operation.SelectWalls &&
+              state.operation !== Operation.FindPath
             }
-            onClick={() => {
-              setState((prev) => ({ ...prev, operation: Operation.FindPath }));
-              handleStart();
-            }}
+            onClick={() => handleNext()}
           >
             {state.operation <= Operation.SelectWalls ? 'Start' : 'Next'}
           </button>
           <button
             className="menu-bar-button"
             disabled={
-              state.operation < Operation.SelectWalls ||
-              state.operation >= Operation.PathFound
+              state.operation !== Operation.SelectWalls &&
+              state.operation !== Operation.FindPath
             }
-            onClick={() => {
-              setState((prev) => ({ ...prev, operation: Operation.FindPath }));
-              handleSkip();
-            }}
+            onClick={() => handleSkip()}
           >
             Run
           </button>
@@ -374,13 +220,12 @@ function App() {
           gridTemplateColumns: `repeat(${gridSize}, auto)`,
         }}
       >
-        {[...squares.entries()].map(([_, node], idx) => (
+        {nodes.map((node) => (
           <Square
-            key={idx}
+            key={node.key()}
             node={node}
             debug={state.debug}
-            gridSize={gridSize}
-            handleUpdateSquare={handleUpdateSquare}
+            onClick={handleClickSquare}
           />
         ))}
       </div>
