@@ -1,14 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-
-export enum NodeType {
-  Empty,
-  Wall,
-  Start,
-  End,
-  Path,
-  Searching,
-  Visited,
-}
+import React, { useCallback } from 'react';
+import { Node, NodeType } from './node';
 
 const NodeColor = new Map([
   [NodeType.Empty, 'white'],
@@ -16,49 +7,32 @@ const NodeColor = new Map([
   [NodeType.Path, 'gray'],
   [NodeType.End, 'blue'],
   [NodeType.Start, 'green'],
+  [NodeType.Current, 'green'],
   [NodeType.Searching, 'lightblue'],
   [NodeType.Visited, 'red'],
 ]);
+
 interface Props {
   node: Node;
   debug: boolean;
-  gridSize: number;
-  handleUpdateSquare: (node: Node, node_type?:NodeType) => void;
+  onClick: (node: Node, isLeftClick: boolean) => void;
 }
 
 export default function Square({
   node,
   debug,
-  handleUpdateSquare,
-  gridSize,
+  onClick,
 }: Props) {
-  const [backgroundColor, setBackgroundColor] = useState<string>();
-
-  const handleUpdateBackground = () => {
-    setBackgroundColor(NodeColor.get(node.type));
-  };
-
   const handleMouseDown = useCallback((event) => {
-    switch (event.buttons) {
-      case 1:
-        handleUpdateSquare(node)
-        break;
-
-      case 2:
-        handleUpdateSquare(node, NodeType.Empty);
-        break;
-    }
-  }, [node, handleUpdateSquare])
-
-  useEffect(handleUpdateBackground, [node.type]);
+    if (event.buttons === 1 || event.buttons === 2)
+      onClick(node, event.buttons === 1);
+  }, [node, onClick])
 
   return (
     <div
       draggable="false"
       className='square'
-      style={{
-        backgroundColor,
-      }}
+      style={{ backgroundColor: NodeColor.get(node.type) }}
       onContextMenu={(e) => e.preventDefault()}
       onMouseDown={handleMouseDown}
       onMouseOver={handleMouseDown}
@@ -90,89 +64,4 @@ export default function Square({
         ]}
     </div>
   );
-}
-
-export class Node {
-  x: number;
-  y: number;
-  coord: string;
-  fCost: number;
-  hCost: number;
-  gCost: number;
-  type: NodeType;
-  neighbours: [string, number][];
-  prevNode: Node | undefined;
-
-  constructor(x: number, y: number, gridSize: number) {
-    this.x = x;
-    this.y = y;
-    this.coord = `${x},${y}`;
-    this.type = NodeType.Empty;
-    this.fCost = Number.MAX_VALUE;
-    this.hCost = 0;
-    this.gCost = Number.MAX_VALUE;
-    this.neighbours = Node.getNeighbours(x, y, gridSize);
-  }
-
-  calculateFCost() {
-    this.fCost = this.hCost + this.gCost;
-  }
-
-  calculateHCost(x: number, y: number) {
-    this.hCost = Math.abs(this.x - x) + Math.abs(this.y - y);
-  }
-
-  setType(type: NodeType) {
-    this.type = type;
-  }
-
-  static getNeighbours(
-    x: number,
-    y: number,
-    gridSize: number
-  ): [string, number][] {
-    let neighbours: [string, number][] = [];
-
-    // top
-    if (y > 0) {
-      neighbours.push([`${x},${y - 1}`, 1]);
-    }
-
-    // bottom
-    if (y < gridSize - 1) {
-      neighbours.push([`${x},${y + 1}`, 1]);
-    }
-
-    // left
-    if (x > 0) {
-      neighbours.push([`${x - 1},${y}`, 1]);
-
-      // left top
-      if (y > 0) {
-        neighbours.push([`${x - 1},${y - 1}`, 1.4]);
-      }
-
-      // left bottom
-      if (y < gridSize - 1) {
-        neighbours.push([`${x - 1},${y + 1}`, 1.4]);
-      }
-    }
-
-    // right
-    if (x < gridSize - 1) {
-      neighbours.push([`${x + 1},${y}`, 1]);
-
-      // right top
-      if (y > 0) {
-        neighbours.push([`${x + 1},${y - 1}`, 1.4]);
-      }
-
-      // right bottom
-      if (y < gridSize - 1) {
-        neighbours.push([`${x + 1},${y + 1}`, 1.4]);
-      }
-    }
-
-    return neighbours;
-  }
 }
