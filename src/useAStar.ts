@@ -11,13 +11,13 @@ interface Props {
 }
 
 const openList = new Heap<Node>((a, b) => {
-  let fDiff = a.fCost - b.fCost;
+  const fDiff = a.fCost - b.fCost;
 
   if (fDiff !== 0) {
     return fDiff;
   }
 
-  let hDiff = a.hCost - b.hCost;
+  const hDiff = a.hCost - b.hCost;
 
   if (hDiff !== 0) {
     return hDiff;
@@ -73,7 +73,7 @@ export default function useAStar({ state, gridSize, speed, onFinishSearching }: 
 
 		setEndNode(node);
     node.setType(NodeType.End);
-    for (let currNode of nodes) {
+    for (const currNode of nodes) {
       currNode.calculateHCost(node);
     }
 	}, [gridSize, nodes, endNode, setEndNode]);
@@ -108,18 +108,18 @@ export default function useAStar({ state, gridSize, speed, onFinishSearching }: 
 			return false;
 		}
 
-		let node = openList.pop();
+		const node = openList.pop();
 
 		if (!node) {
-			alert('ERROR');
+      console.error("Unreachable: Open list is not empty but pop() returned null");
       onFinishSearching(false);
 			return false;
 		}
 
 		node.setType(NodeType.Visited);
-    closedList.add(node!);
+    closedList.add(node);
 
-		for (let [index, cost] of node!.neighbours) {
+		for (const [index, cost] of node.neighbours) {
 			const neighbour = nodes[index];
 
 			if ((!state.diagonals && cost === 1.4) ||
@@ -127,7 +127,7 @@ export default function useAStar({ state, gridSize, speed, onFinishSearching }: 
 				neighbour.type === NodeType.Wall)
 				continue;
 
-      let newCost = node!.gCost + cost;
+      const newCost = node.gCost + cost;
 
 			if (neighbour === endNode) {
 				neighbour.setGcost(newCost);
@@ -149,7 +149,7 @@ export default function useAStar({ state, gridSize, speed, onFinishSearching }: 
 			}
 		}
 
-		let nextNode = openList.peek();
+		const nextNode = openList.peek();
 		nextNode?.setType(NodeType.Current);
 		setCurrentNode(nextNode ?? null);
 		return true;

@@ -117,6 +117,10 @@ function App() {
       case Operation.SelectWalls:
         handleSelectWall(node, isLeftClick);
         break;
+
+      default:
+        // TODO: maybe allow adding walls during path finding?
+        break;
     }
   }, [state, handleSelectStart, handleSelectEnd, handleSelectWall]);
 
